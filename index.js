@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 import {
   tokenize,
@@ -28,6 +29,7 @@ import {
   findOrCreateNodeForGeometry
 } from "./risa-core.js";
 
+export function createRisaServer() {
 const server = new McpServer({
   name: "risa3d-mcp",
   version: "1.0.0"
@@ -4257,5 +4259,15 @@ server.tool(
   }
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+return server;
+}
+
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  const server = createRisaServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}

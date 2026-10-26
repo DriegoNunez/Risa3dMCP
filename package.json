@@ -4,7 +4,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node http.js",
+    "start:stdio": "node index.js",
+    "check": "node --check index.js && node --check http.js",
+    "test": "node tests/run-all.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

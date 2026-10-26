@@ -360,6 +360,14 @@ Split member M41 at 50% of its length.
 Merge members M41 and M42.
 ```
 
+```
+Add a -1.5 k node load to N17 in the DL case.
+```
+
+```
+Add a -0.25 k/ft distributed load to M41 in LL, copying the direction from M40's LL load.
+```
+
 ---
 
 ### Geometry
@@ -468,6 +476,8 @@ Export every HSS member to a schedule.
 | `merge_members` | Merges two compatible members into one. |
 | `mirror_geometry` | Mirrors selected geometry. |
 | `copy_translate_geometry` | Copies geometry using XYZ offsets. |
+| `add_node_load` | Adds a node load to an existing basic load case. |
+| `add_distributed_load` | Adds a member distributed load to an existing basic load case. |
 
 ---
 
@@ -542,6 +552,15 @@ instead of exposing internal raw IDs.
 - Node load magnitude changes
 
 It does **not** currently edit area loads.
+
+### Adding loads
+
+`add_node_load` and `add_distributed_load` add a new row to an existing basic load case:
+
+- The new row is inserted at the end of that case's block of rows, and the case's count in `[BASIC_LOAD_CASES]` and the section's `<n>` header are increased, so loads in later cases keep their owner.
+- The row is copied from an existing load of the same type **in the same case** (the first one, or the one on `templateNodeLabel` / `templateMemberLabel`). Only the node/member, magnitudes and, for distributed loads, the optional start/end locations are changed. The direction code and RISA's internal load-case ID are copied, because their encoding is not fully decoded.
+- A case with no loads of that type cannot be used yet: add one load of that type in RISA-3D first.
+- Every saved file is re-checked: load-case counts must match the rows, and every load must point to an existing node or member.
 
 Area loads are intentionally excluded because RISA may generate transient/memberized distributed loads from area loads. Editing the area loads without regenerating those derived loads could create an inconsistent model.
 
@@ -659,6 +678,9 @@ Current coverage:
 - Geometry helpers
 - QC engine
 - Write helpers
+- File I/O: section lookup, safe splicing, CRLF preservation, pre-save validation
+- Adding node and distributed loads
+- Every write tool, end to end through an MCP client, on LF and CRLF copies of `tests/fixtures/sample.r3d` (a synthetic model)
 
 ---
 

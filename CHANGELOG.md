@@ -4,6 +4,33 @@ All notable changes to the RISA-3D MCP Server are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+**Load editing tools**
+
+- `add_node_load`: adds a node load to an existing basic load case.
+- `add_distributed_load`: adds a member distributed load to an existing basic load case, uniform or varying, with optional start/end locations.
+
+New rows are inserted at the end of the case's block and the `[BASIC_LOAD_CASES]` count and section header are updated, so later cases keep their loads. Each new row copies an existing row of the same type from the same case, keeping the direction code and internal load-case ID.
+
+### Fixed
+
+- `read_risa_model`, `batch_summarize_folder` and `batch_summarize_folder_to_excel` reported 0 members: they looked for `[MEMBERS_MAIN_DATA]` instead of `[.MEMBERS_MAIN_DATA]`.
+- Write tools no longer mix LF rows into CRLF files; saved files keep the source's line endings.
+- Section edits replace by position instead of `String.replace`, so they cannot hit an earlier identical block or expand `---
+
+## [2.1.0] - 2026-06
+`.
+
+### Changed
+
+- Every write tool validates the edited model before saving (section markers, header counts, node references, zero-length members, duplicate labels, load-case counts and load references) and writes through a temp file. Nothing is written if validation fails.
+- Added a synthetic test fixture, end-to-end MCP tests for every write tool, and `npm test` in CI.
+
+---
+
 ## [2.1.0] - 2026-06
 
 ### Added

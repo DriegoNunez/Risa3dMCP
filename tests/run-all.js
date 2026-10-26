@@ -7,6 +7,7 @@ const files = [
   "write-tools.test.js",
   "geometry.test.js",
   "io.test.js",
+  "loads-write.test.js",
   "mcp-tools.test.js"
 ];
 

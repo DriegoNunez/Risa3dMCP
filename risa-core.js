@@ -152,7 +152,200 @@ export function validateRisaEdit(original, updated) {
   newItems("zeroLength").forEach(item => errors.push(`zero-length member: ${item}`));
   newItems("duplicateMemberLabels").forEach(item => errors.push(`duplicate member label: ${item}`));
 
+  const loadIssuesBefore = new Set(loadTableIssues(original));
+  loadTableIssues(updated)
+    .filter(issue => !loadIssuesBefore.has(issue))
+    .forEach(issue => errors.push(issue));
+
   return errors;
+}
+
+// ---- Load tables ----
+// Load rows do not name their load case. Each case owns a contiguous block of
+// rows, in BASIC_LOAD_CASES order, sized by a count token on the case's row.
+
+export const LOAD_TABLES = {
+  node: { section: "NODE_LOADS", countToken: 2 },
+  distributed: { section: "DIRECT_DISTRIBUTED_LOADS", countToken: 5 },
+  area: { section: "AREA_LOADS", countToken: 6 }
+};
+
+function orderedBasicLoadCaseLines(content) {
+  return getSectionLines(content, "BASIC_LOAD_CASES")
+    .map(line => ({ line, tokens: tokenize(line) }))
+    .sort((a, b) => parseInt(a.tokens[0], 10) - parseInt(b.tokens[0], 10));
+}
+
+// Lists mismatches between the BASIC_LOAD_CASES counts, each load section's
+// "<n>" header and its actual rows.
+export function loadTableIssues(content) {
+  const issues = [];
+  const cases = orderedBasicLoadCaseLines(content);
+
+  for (const table of Object.values(LOAD_TABLES)) {
+    const section = findSection(content, table.section);
+    if (!section) continue;
+
+    if (section.declaredCount !== section.lines.length) {
+      issues.push(`[${table.section}] header says <${section.declaredCount}> but the section has ${section.lines.length} rows`);
+    }
+
+    const owned = cases.reduce((sum, c) => sum + (parseInt(cleanSemi(c.tokens[table.countToken]), 10) || 0), 0);
+    if (cases.length > 0 && owned !== section.lines.length) {
+      issues.push(`[BASIC_LOAD_CASES] assigns ${owned} ${table.section} rows but the section has ${section.lines.length}`);
+    }
+  }
+
+  // Node and distributed load rows start with a 1-based node/member position.
+  const refTables = [
+    ["NODE_LOADS", "node", parseNodesOrdered(content).length],
+    ["DIRECT_DISTRIBUTED_LOADS", "member", getSectionLines(content, "MEMBERS_MAIN_DATA").length]
+  ];
+
+  for (const [name, what, available] of refTables) {
+    getSectionLines(content, name).forEach((line, i) => {
+      const ref = parseInt(tokenize(line)[0], 10);
+      if (!(ref >= 1 && ref <= available)) {
+        issues.push(`[${name}] row ${i + 1} points to ${what} ${ref}, but the model has ${available} ${what}s`);
+      }
+    });
+  }
+
+  return issues;
+}
+
+// Start/end offsets of each quote-aware token, so one field can be rewritten
+// without disturbing the row's spacing.
+export function tokenSpans(line) {
+  const spans = [];
+  let i = 0;
+
+  while (i < line.length) {
+    while (i < line.length && /\s/.test(line[i])) i++;
+    if (i >= line.length) break;
+
+    const start = i;
+    if (line[i] === '"') {
+      i++;
+      while (i < line.length && line[i] !== '"') i++;
+      i++;
+    } else {
+      while (i < line.length && !/\s/.test(line[i])) i++;
+    }
+    spans.push({ start, end: i });
+  }
+
+  return spans;
+}
+
+// Replaces token `index` in a row, keeping a trailing ";" on the last token.
+export function replaceToken(line, index, value) {
+  const span = tokenSpans(line)[index];
+  if (!span) throw new Error(`Row has no field ${index}: ${line.trim()}`);
+
+  const old = line.slice(span.start, span.end);
+  const suffix = old.endsWith(";") ? ";" : "";
+
+  return line.slice(0, span.start) + value + suffix + line.slice(span.end);
+}
+
+// Formats a number the way an existing field is written (scientific or fixed).
+export function formatLikeToken(token, value) {
+  return /e[+-]?\d/i.test(cleanSemi(token)) ? formatSciNotation(value) : value.toFixed(6);
+}
+
+function replaceSectionLines(content, name, section, lines) {
+  const body = lines.length > 0 ? `\n${lines.join("\n")}\n` : "\n";
+  const rebuilt = `[${section.dots}${name}] <${lines.length}>${body}[${section.dots}END_${name}]`;
+  return content.slice(0, section.start) + rebuilt + content.slice(section.end);
+}
+
+// Adds one load row to a basic load case by copying an existing row of the
+// same type from that case and overwriting the given fields. Copying keeps the
+// direction code and RISA's internal load-case ID, which are not decoded.
+//   kind:          "node" | "distributed"
+//   caseName:      basic load case name (case-insensitive)
+//   targetIndex:   1-based node/member position written to field 0
+//   templateIndex: optional node/member position of the row to copy
+//   fields:        { tokenIndex: number } values to write into the copy
+export function addLoadFromTemplate(content, { kind, caseName, targetIndex, templateIndex, fields }) {
+  const table = LOAD_TABLES[kind];
+  if (!table) throw new Error(`Unknown load table "${kind}"`);
+
+  const loadSection = findSection(content, table.section);
+  const blcSection = findSection(content, "BASIC_LOAD_CASES");
+  if (!loadSection) throw new Error(`No [${table.section}] section found.`);
+  if (!blcSection) throw new Error("No [BASIC_LOAD_CASES] section found.");
+
+  const before = loadTableIssues(content);
+  if (before.length > 0) {
+    throw new Error(`Load tables are already inconsistent, refusing to add rows:\n- ${before.join("\n- ")}`);
+  }
+
+  const cases = orderedBasicLoadCaseLines(content);
+  let cursor = 0;
+  let target = null;
+
+  for (const c of cases) {
+    const count = parseInt(cleanSemi(c.tokens[table.countToken]), 10) || 0;
+    if (clean(c.tokens[1]).toLowerCase() === caseName.trim().toLowerCase()) {
+      target = { ...c, start: cursor, count };
+      break;
+    }
+    cursor += count;
+  }
+
+  if (!target) {
+    const names = cases.map(c => clean(c.tokens[1])).join(", ");
+    throw new Error(`Load case "${caseName}" not found. Available: ${names}`);
+  }
+
+  const caseRows = loadSection.lines.slice(target.start, target.start + target.count);
+  if (caseRows.length === 0) {
+    throw new Error(
+      `Load case "${clean(target.tokens[1])}" has no existing ${table.section} rows to copy. ` +
+      `Add one load of this type to the case in RISA-3D first so its direction and internal ID can be copied.`
+    );
+  }
+
+  const templateRow = templateIndex
+    ? caseRows.find(row => parseInt(tokenize(row)[0], 10) === templateIndex)
+    : caseRows[0];
+
+  if (!templateRow) {
+    throw new Error(`No ${table.section} row for position ${templateIndex} in load case "${clean(target.tokens[1])}" to copy.`);
+  }
+
+  const templateTokens = tokenize(templateRow);
+  let newRow = replaceToken(templateRow, 0, String(targetIndex));
+  for (const [index, value] of Object.entries(fields)) {
+    newRow = replaceToken(newRow, Number(index), formatLikeToken(templateTokens[index], value));
+  }
+
+  const loadLines = [...loadSection.lines];
+  loadLines.splice(target.start + target.count, 0, newRow);
+
+  const blcLines = blcSection.lines.map(line =>
+    line === target.line ? replaceToken(line, table.countToken, String(target.count + 1)) : line
+  );
+
+  // Rebuild the later section first so the earlier section's offsets stay valid.
+  const edits = [
+    [table.section, loadSection, loadLines],
+    ["BASIC_LOAD_CASES", blcSection, blcLines]
+  ].sort((a, b) => b[1].start - a[1].start);
+
+  const updated = edits.reduce((acc, [name, section, lines]) => replaceSectionLines(acc, name, section, lines), content);
+
+  return {
+    content: updated,
+    caseName: clean(target.tokens[1]),
+    caseIndex: parseInt(target.tokens[0], 10),
+    rowNumber: target.start + target.count + 1,
+    templateRow: templateRow.trim(),
+    newRow: newRow.trim(),
+    rowsInCase: target.count + 1
+  };
 }
 
 // Quote-aware tokenizer: treats anything inside "..." as a single token.

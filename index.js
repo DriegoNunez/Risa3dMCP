@@ -32,7 +32,8 @@ import {
   getSectionCount,
   spliceMatch,
   spliceMatchGroup,
-  spliceMatches
+  spliceMatches,
+  addLoadFromTemplate
 } from "./risa-core.js";
 
 export function createRisaServer() {
@@ -4257,6 +4258,163 @@ server.tool(
             "",
             "IMPORTANT: open the saved file in RISA-3D and verify geometry before relying on this model."
           ].join("\n")
+        }]
+      };
+
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+    }
+  }
+);
+
+// Shared output for the add-load tools.
+function loadAddedReport(title, filePath, outputPath, result, details) {
+  return [
+    title,
+    `Source: ${filePath}`,
+    `Output: ${outputPath}`,
+    "",
+    ...details,
+    `Load case: ${result.caseName} (BLC ${result.caseIndex}), now ${result.rowsInCase} row(s) of this type`,
+    `Inserted as table row ${result.rowNumber}`,
+    `Copied from row: ${result.templateRow}`,
+    `New row:         ${result.newRow}`,
+    "",
+    "Direction and RISA's internal load-case ID were copied from the template row in the same load case.",
+    "IMPORTANT: open the saved file in RISA-3D and confirm the load appears in the right case and direction before relying on this model."
+  ].join("\n");
+}
+
+// Tool 44: add_node_load
+// Adds a node load to an existing basic load case by copying a node load row
+// already in that case. Keeps BASIC_LOAD_CASES counts and row order in step.
+// Saves a NEW .r3d file. NEVER overwrites original.
+server.tool(
+  "add_node_load",
+  {
+    filePath: z.string().describe("Full path to the source .r3d file"),
+    outputPath: z.string().describe("Full path for the new .r3d file (must be different from source)"),
+    nodeLabel: z.string().describe("Node to load e.g. N17"),
+    loadCaseName: z.string().describe("Basic load case name e.g. DL, LL, WLx. The case must already contain at least one node load."),
+    magnitude: z.number().describe("Load magnitude in the model's units (sign as in RISA, negative = downward for Y)"),
+    templateNodeLabel: z.string().optional()
+      .describe("Optional: copy direction and settings from this node's load in the same case. Defaults to the case's first node load.")
+  },
+  async ({ filePath, outputPath, nodeLabel, loadCaseName, magnitude, templateNodeLabel }) => {
+    try {
+      if (filePath.toLowerCase() === outputPath.toLowerCase()) {
+        return { content: [{ type: "text", text: "Error: outputPath must be different from filePath. This tool never overwrites the original file." }] };
+      }
+
+      const fileContent = readRisaFile(filePath);
+      const nodesOrdered = parseNodesOrdered(fileContent);
+      const indexOfNode = label => nodesOrdered.findIndex(n => n.label === label) + 1;
+
+      const nodeIndex = indexOfNode(nodeLabel);
+      if (nodeIndex === 0) {
+        return { content: [{ type: "text", text: `Error: node "${nodeLabel}" not found.` }] };
+      }
+
+      let templateIndex;
+      if (templateNodeLabel) {
+        templateIndex = indexOfNode(templateNodeLabel);
+        if (templateIndex === 0) {
+          return { content: [{ type: "text", text: `Error: template node "${templateNodeLabel}" not found.` }] };
+        }
+      }
+
+      const result = addLoadFromTemplate(fileContent, {
+        kind: "node",
+        caseName: loadCaseName,
+        targetIndex: nodeIndex,
+        templateIndex,
+        fields: { 2: magnitude }
+      });
+
+      writeRisaFile(outputPath, result.content, { sourcePath: filePath });
+
+      return {
+        content: [{
+          type: "text",
+          text: loadAddedReport("NODE LOAD ADDED", filePath, outputPath, result, [
+            `Node: ${nodeLabel} (position ${nodeIndex})`,
+            `Magnitude: ${magnitude}`
+          ])
+        }]
+      };
+
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+    }
+  }
+);
+
+// Tool 45: add_distributed_load
+// Adds a member distributed load to an existing basic load case by copying a
+// distributed load row already in that case. Keeps BASIC_LOAD_CASES counts and
+// row order in step. Saves a NEW .r3d file. NEVER overwrites original.
+server.tool(
+  "add_distributed_load",
+  {
+    filePath: z.string().describe("Full path to the source .r3d file"),
+    outputPath: z.string().describe("Full path for the new .r3d file (must be different from source)"),
+    memberLabel: z.string().describe("Member to load e.g. M41"),
+    loadCaseName: z.string().describe("Basic load case name e.g. DL, LL, WLx. The case must already contain at least one distributed load."),
+    startMagnitude: z.number().describe("Start magnitude (e.g. k/ft; negative = downward for Y)"),
+    endMagnitude: z.number().optional().describe("End magnitude. Defaults to startMagnitude (uniform load)."),
+    startLocation: z.number().optional().describe("Start location as stored by RISA. Defaults to the template row's value."),
+    endLocation: z.number().optional().describe("End location as stored by RISA. Defaults to the template row's value."),
+    templateMemberLabel: z.string().optional()
+      .describe("Optional: copy direction and settings from this member's load in the same case. Defaults to the case's first distributed load.")
+  },
+  async ({ filePath, outputPath, memberLabel, loadCaseName, startMagnitude, endMagnitude, startLocation, endLocation, templateMemberLabel }) => {
+    try {
+      if (filePath.toLowerCase() === outputPath.toLowerCase()) {
+        return { content: [{ type: "text", text: "Error: outputPath must be different from filePath. This tool never overwrites the original file." }] };
+      }
+
+      const fileContent = readRisaFile(filePath);
+      const members = parseMembersResolved(fileContent, parseNodesOrdered(fileContent));
+      const indexOfMember = label => members.findIndex(m => m.label === label) + 1;
+
+      const memberIndex = indexOfMember(memberLabel);
+      if (memberIndex === 0) {
+        return { content: [{ type: "text", text: `Error: member "${memberLabel}" not found.` }] };
+      }
+
+      let templateIndex;
+      if (templateMemberLabel) {
+        templateIndex = indexOfMember(templateMemberLabel);
+        if (templateIndex === 0) {
+          return { content: [{ type: "text", text: `Error: template member "${templateMemberLabel}" not found.` }] };
+        }
+      }
+
+      const endMag = endMagnitude !== undefined ? endMagnitude : startMagnitude;
+      const fields = { 2: startMagnitude, 3: endMag };
+      if (startLocation !== undefined) fields[4] = startLocation;
+      if (endLocation !== undefined) fields[5] = endLocation;
+
+      const result = addLoadFromTemplate(fileContent, {
+        kind: "distributed",
+        caseName: loadCaseName,
+        targetIndex: memberIndex,
+        templateIndex,
+        fields
+      });
+
+      writeRisaFile(outputPath, result.content, { sourcePath: filePath });
+
+      const newTokens = tokenize(result.newRow);
+
+      return {
+        content: [{
+          type: "text",
+          text: loadAddedReport("DISTRIBUTED LOAD ADDED", filePath, outputPath, result, [
+            `Member: ${memberLabel} (position ${memberIndex})`,
+            `Magnitude: ${startMagnitude} -> ${endMag}`,
+            `Locations: ${cleanSemi(newTokens[4])} -> ${cleanSemi(newTokens[5])}${startLocation === undefined && endLocation === undefined ? " (copied from template)" : ""}`
+          ])
         }]
       };
 

@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createRisaServer } from "../index.js";
-import { normalizeEol, validateRisaEdit, parseNodesOrdered, parseMembersResolved } from "../risa-core.js";
+import { normalizeEol, validateRisaEdit, parseNodesOrdered, parseMembersResolved, parseLoadsByBasicLoadCase } from "../risa-core.js";
 import { samplePath, outputDir, ensureOutputDir } from "./test-utils.js";
 
 ensureOutputDir();
@@ -53,7 +53,10 @@ const writeCases = [
   ["split_member", { memberLabel: "M1", splitFraction: 0.5 }],
   ["merge_members", { memberLabel1: "M3", memberLabel2: "M4" }],
   ["mirror_geometry", { memberLabels: ["M1", "M3"], mirrorPlane: "YZ", mirrorAt: 30 }],
-  ["copy_translate_geometry", { memberLabels: ["M1", "M2", "M3", "M4"], dx: 0, dy: 0, dz: 15 }]
+  ["copy_translate_geometry", { memberLabels: ["M1", "M2", "M3", "M4"], dx: 0, dy: 0, dz: 15 }],
+  ["add_node_load", { nodeLabel: "N2", loadCaseName: "DL", magnitude: -3 }],
+  ["add_distributed_load", { memberLabel: "M5", loadCaseName: "DL", startMagnitude: -0.3 }],
+  ["add_distributed_load", { memberLabel: "M4", loadCaseName: "LL", startMagnitude: -0.4, endMagnitude: -0.2, templateMemberLabel: "M3" }]
 ];
 
 const sources = {
@@ -107,6 +110,32 @@ for (const [eol, sourcePath] of Object.entries(sources)) {
     });
   }
 }
+
+await test("add_distributed_load result is attributed to the right load cases", async () => {
+  const outputPath = path.join(outputDir, "mcp-add-dist-check.r3d");
+  await callTool("add_distributed_load", {
+    filePath: sources.crlf, outputPath, memberLabel: "M5", loadCaseName: "DL", startMagnitude: -0.3
+  });
+
+  const cases = parseLoadsByBasicLoadCase(normalizeEol(fs.readFileSync(outputPath, "utf8"))).cases;
+  const dl = cases.find(c => c.name === "DL").distributedLoads.map(r => r.tokens[0]);
+  const ll = cases.find(c => c.name === "LL").distributedLoads.map(r => r.tokens[0]);
+
+  assert.deepStrictEqual(dl, ["3", "4", "5"]);
+  assert.deepStrictEqual(ll, ["3"]);
+});
+
+await test("add_node_load reports an error and writes nothing for a case without node loads", async () => {
+  const outputPath = path.join(outputDir, "mcp-add-node-ll.r3d");
+  if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+
+  const text = await callTool("add_node_load", {
+    filePath: sources.lf, outputPath, nodeLabel: "N2", loadCaseName: "LL", magnitude: -1
+  });
+
+  assert.match(text, /^Error: .*has no existing NODE_LOADS rows/);
+  assert.ok(!fs.existsSync(outputPath));
+});
 
 await test("replace_section_size_in_folder keeps CRLF endings", async () => {
   const folder = path.join(outputDir, "mcp-folder");

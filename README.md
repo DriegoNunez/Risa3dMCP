@@ -473,7 +473,7 @@ Export every HSS member to a schedule.
 | `delete_member` | Deletes one or more members, removes their distributed loads and renumbers loads on later members. |
 | `copy_member` | Copies an existing member between two nodes. |
 | `split_member` | Splits one member into two. |
-| `merge_members` | Merges two compatible members into one. |
+| `merge_members` | Merges two compatible members into one. Combines matching uniform full-length distributed loads; refuses if any other load would have to move. |
 | `mirror_geometry` | Mirrors selected geometry. |
 | `copy_translate_geometry` | Copies geometry using XYZ offsets. |
 | `add_node_load` | Adds a node load to an existing basic load case. |

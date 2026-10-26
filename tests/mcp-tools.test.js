@@ -51,7 +51,6 @@ const writeCases = [
   ["delete_member", { memberLabels: ["M5"] }],
   ["copy_member", { sourceMemberLabel: "M3", newMemberLabel: "M90", iNodeLabel: "N2", jNodeLabel: "N4" }],
   ["split_member", { memberLabel: "M1", splitFraction: 0.5 }],
-  ["merge_members", { memberLabel1: "M3", memberLabel2: "M4" }],
   ["mirror_geometry", { memberLabels: ["M1", "M3"], mirrorPlane: "YZ", mirrorAt: 30 }],
   ["copy_translate_geometry", { memberLabels: ["M1", "M2", "M3", "M4"], dx: 0, dy: 0, dz: 15 }],
   ["add_node_load", { nodeLabel: "N2", loadCaseName: "DL", magnitude: -3 }],

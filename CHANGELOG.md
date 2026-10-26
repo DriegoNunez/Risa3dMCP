@@ -18,6 +18,7 @@ New rows are inserted at the end of the case's block and the `[BASIC_LOAD_CASES]
 ### Fixed
 
 - `delete_member` left distributed loads pointing at member positions, so after a delete they moved to the wrong member or past the end of the list. Loads on deleted members are now removed, loads on later members are renumbered, and `[BASIC_LOAD_CASES]` counts are updated.
+- `merge_members` had the same problem. It now combines loads only when both members carry the same uniform, full-length load in a case and run in the merged member's direction, renumbers loads on later members, and refuses the merge (writing nothing) if any other load would need its locations rewritten.
 - `read_risa_model`, `batch_summarize_folder` and `batch_summarize_folder_to_excel` reported 0 members: they looked for `[MEMBERS_MAIN_DATA]` instead of `[.MEMBERS_MAIN_DATA]`.
 - Write tools no longer mix LF rows into CRLF files; saved files keep the source's line endings.
 - Section edits replace by position instead of `String.replace`, so they cannot hit an earlier identical block or expand `---

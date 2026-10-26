@@ -422,6 +422,47 @@ export function remapMemberLoadsAfterDelete(content, removedPositions) {
   return { content: updated, droppedRows, renumbered };
 }
 
+// Plans the distributed loads for merging member `removePosition` into member
+// `keepPosition` (1-based, original order). A load can only be carried over
+// exactly when both members have the same uniform full-length load in a case
+// (start/end locations 0) and both run in the merged member's direction:
+// those pairs combine into the kept member's load. Anything else would need
+// its locations rewritten, which needs RISA's location encoding, so it is
+// returned as a blocker instead.
+//   consistentOrientation: kept member runs outer->common and the removed
+//                          member runs common->outer
+export function planMergedMemberLoads(content, { keepPosition, removePosition, consistentOrientation }) {
+  const combined = [];
+  const blockers = [];
+
+  const describe = (caseName, which, tokens) =>
+    `${caseName} on ${which}: ${tokens[2]} -> ${tokens[3]}, locations ${tokens[4]} -> ${tokens[5]}`;
+  const isUniformFullLength = t =>
+    parseFloat(t[2]) === parseFloat(t[3]) && parseFloat(t[4]) === 0 && parseFloat(t[5]) === 0;
+  const keyOf = t => t.slice(1).join(" ");
+
+  for (const c of parseLoadsByBasicLoadCase(content).cases) {
+    const onKeep = c.distributedLoads.filter(r => parseInt(r.tokens[0], 10) === keepPosition);
+    const onRemove = c.distributedLoads.filter(r => parseInt(r.tokens[0], 10) === removePosition);
+    const unmatched = [...onRemove];
+
+    for (const row of onKeep) {
+      const partner = unmatched.findIndex(other => keyOf(other.tokens) === keyOf(row.tokens));
+
+      if (consistentOrientation && isUniformFullLength(row.tokens) && partner >= 0) {
+        unmatched.splice(partner, 1);
+        combined.push(describe(c.name, "both members", row.tokens));
+      } else {
+        blockers.push(describe(c.name, "kept member", row.tokens));
+      }
+    }
+
+    unmatched.forEach(row => blockers.push(describe(c.name, "removed member", row.tokens)));
+  }
+
+  return { combined, blockers };
+}
+
 // Quote-aware tokenizer: treats anything inside "..." as a single token.
 export function tokenize(line) {
   const tokens = [];

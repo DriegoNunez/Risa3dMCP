@@ -34,7 +34,8 @@ import {
   spliceMatchGroup,
   spliceMatches,
   addLoadFromTemplate,
-  remapMemberLoadsAfterDelete
+  remapMemberLoadsAfterDelete,
+  planMergedMemberLoads
 } from "./risa-core.js";
 
 export function createRisaServer() {
@@ -3826,7 +3827,9 @@ server.tool(
 
 // Tool 41: merge_members
 // Merges two collinear-ish members that share one common node into one member.
-// Keeps the first member label, deletes the second member.
+// Keeps the first member label, deletes the second member. Matching uniform
+// full-length distributed loads are combined; any other load on either member
+// blocks the merge. Loads on later members are renumbered.
 // Saves a NEW .r3d file. NEVER overwrites the original file.
 server.tool(
   "merge_members",
@@ -3913,6 +3916,34 @@ server.tool(
         };
       }
 
+      // Distributed loads point to members by position. Only loads that are
+      // provably the same on the merged member can be carried over.
+      const keepPosition = members.indexOf(m1) + 1;
+      const removePosition = members.indexOf(m2) + 1;
+      const loadPlan = planMergedMemberLoads(fileContent, {
+        keepPosition,
+        removePosition,
+        consistentOrientation: m1.jNode === commonNode.label && m2.iNode === commonNode.label
+      });
+
+      if (loadPlan.blockers.length > 0) {
+        return {
+          content: [{
+            type: "text",
+            text: [
+              "Error: merge not done. No file written.",
+              "These distributed loads cannot be carried over to the merged member exactly:",
+              ...loadPlan.blockers.map(b => `  ${b}`),
+              "",
+              "Loads are only combined when both members carry the same uniform, full-length load in a case",
+              `and ${memberLabel1} runs toward the common node while ${memberLabel2} runs away from it.`,
+              "Moving any other load needs its start/end locations rewritten, which this tool does not do yet.",
+              "Adjust or remove these loads (e.g. in RISA-3D), then merge again."
+            ].join("\n")
+          }]
+        };
+      }
+
       const membersMatch = fileContent.match(/(\[\.MEMBERS_MAIN_DATA\] <)(\d+)(>)([\s\S]*?)(\[\.END_MEMBERS_MAIN_DATA\])/);
 
       if (!membersMatch) {
@@ -3967,6 +3998,11 @@ server.tool(
 
       fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
+      // The removed member's loads were all matched by the kept member's, so
+      // dropping them combines each pair; later members' loads are renumbered.
+      const loadRemap = remapMemberLoadsAfterDelete(fileContent, [removePosition]);
+      fileContent = loadRemap.content;
+
       writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
@@ -3974,6 +4010,9 @@ server.tool(
           type: "text",
           text: [
             "MEMBER MERGE COMPLETE",
+            `Distributed loads combined onto ${memberLabel1}: ${loadPlan.combined.length}`,
+            ...loadPlan.combined.map(c => `  ${c}`),
+            `Distributed loads renumbered to new member positions: ${loadRemap.renumbered}`,
             `Kept member: ${memberLabel1}`,
             `Deleted member: ${memberLabel2}`,
             `Type: ${m1.type}`,

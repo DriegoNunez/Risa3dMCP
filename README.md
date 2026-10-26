@@ -470,7 +470,7 @@ Export every HSS member to a schedule.
 | `clone_model_with_changes` | Creates a modified copy of a model with section, support, or load changes. |
 | `add_member` | Adds a new member using existing or newly created nodes. |
 | `move_node` | Moves an existing node. |
-| `delete_member` | Deletes one or more members. |
+| `delete_member` | Deletes one or more members, removes their distributed loads and renumbers loads on later members. |
 | `copy_member` | Copies an existing member between two nodes. |
 | `split_member` | Splits one member into two. |
 | `merge_members` | Merges two compatible members into one. |

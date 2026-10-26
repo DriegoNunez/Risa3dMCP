@@ -177,8 +177,10 @@ function orderedBasicLoadCaseLines(content) {
 }
 
 // Lists mismatches between the BASIC_LOAD_CASES counts, each load section's
-// "<n>" header and its actual rows.
-export function loadTableIssues(content) {
+// "<n>" header and its actual rows. With references (default) it also lists
+// load rows pointing past the last node/member; editors that are mid-way
+// through renumbering pass { references: false }.
+export function loadTableIssues(content, { references = true } = {}) {
   const issues = [];
   const cases = orderedBasicLoadCaseLines(content);
 
@@ -195,6 +197,8 @@ export function loadTableIssues(content) {
       issues.push(`[BASIC_LOAD_CASES] assigns ${owned} ${table.section} rows but the section has ${section.lines.length}`);
     }
   }
+
+  if (!references) return issues;
 
   // Node and distributed load rows start with a 1-based node/member position.
   const refTables = [
@@ -346,6 +350,76 @@ export function addLoadFromTemplate(content, { kind, caseName, targetIndex, temp
     newRow: newRow.trim(),
     rowsInCase: target.count + 1
   };
+}
+
+// Rewrites a load table case by case. mapRow(row, caseName) returns the row to
+// keep (possibly changed) or null to drop it; each case's count in
+// BASIC_LOAD_CASES is updated to match, so ownership of later rows is kept.
+export function rewriteLoadRows(content, kind, mapRow) {
+  const table = LOAD_TABLES[kind];
+  const loadSection = findSection(content, table.section);
+  if (!loadSection || loadSection.lines.length === 0) return content;
+
+  const blcSection = findSection(content, "BASIC_LOAD_CASES");
+  if (!blcSection) throw new Error(`[${table.section}] has rows but no [BASIC_LOAD_CASES] section was found.`);
+
+  const before = loadTableIssues(content, { references: false });
+  if (before.length > 0) {
+    throw new Error(`Load tables are already inconsistent, refusing to change load rows:\n- ${before.join("\n- ")}`);
+  }
+
+  const newLoadLines = [];
+  const newCounts = new Map();
+  let cursor = 0;
+
+  for (const c of orderedBasicLoadCaseLines(content)) {
+    const count = parseInt(cleanSemi(c.tokens[table.countToken]), 10) || 0;
+    const kept = loadSection.lines
+      .slice(cursor, cursor + count)
+      .map(row => mapRow(row, clean(c.tokens[1])))
+      .filter(row => row !== null);
+
+    newLoadLines.push(...kept);
+    if (kept.length !== count) newCounts.set(c.line, kept.length);
+    cursor += count;
+  }
+
+  const blcLines = blcSection.lines.map(line =>
+    newCounts.has(line) ? replaceToken(line, table.countToken, String(newCounts.get(line))) : line
+  );
+
+  const edits = [
+    [table.section, loadSection, newLoadLines],
+    ["BASIC_LOAD_CASES", blcSection, blcLines]
+  ].sort((a, b) => b[1].start - a[1].start);
+
+  return edits.reduce((acc, [name, section, lines]) => replaceSectionLines(acc, name, section, lines), content);
+}
+
+// After members are removed, distributed loads on those members are dropped
+// and loads on later members are renumbered to the members' new positions.
+//   removedPositions: 1-based positions in the ORIGINAL member order
+export function remapMemberLoadsAfterDelete(content, removedPositions) {
+  const removed = [...new Set(removedPositions)].sort((a, b) => a - b);
+  const droppedRows = [];
+  let renumbered = 0;
+
+  const updated = rewriteLoadRows(content, "distributed", (row, caseName) => {
+    const position = parseInt(tokenize(row)[0], 10);
+
+    if (removed.includes(position)) {
+      droppedRows.push({ caseName, position, row: row.trim() });
+      return null;
+    }
+
+    const shift = removed.filter(p => p < position).length;
+    if (shift === 0) return row;
+
+    renumbered++;
+    return replaceToken(row, 0, String(position - shift));
+  });
+
+  return { content: updated, droppedRows, renumbered };
 }
 
 // Quote-aware tokenizer: treats anything inside "..." as a single token.

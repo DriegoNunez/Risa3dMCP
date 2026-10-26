@@ -33,7 +33,8 @@ import {
   spliceMatch,
   spliceMatchGroup,
   spliceMatches,
-  addLoadFromTemplate
+  addLoadFromTemplate,
+  remapMemberLoadsAfterDelete
 } from "./risa-core.js";
 
 export function createRisaServer() {
@@ -3237,7 +3238,8 @@ server.tool(
 
 // Tool 36: delete_member
 // Deletes one or more existing members by label and saves a NEW .r3d file.
-// Recalculates the MEMBERS_MAIN_DATA header count.
+// Recalculates the MEMBERS_MAIN_DATA header count, removes the deleted
+// members' distributed loads and renumbers loads on later members.
 // NEVER overwrites the original file.
 server.tool(
   "delete_member",
@@ -3281,7 +3283,9 @@ server.tool(
       const memberLines = membersBlockBody.split("\n");
 
       const deleted = [];
+      const deletedPositions = [];
       const keptLines = [];
+      let position = 0;
 
       memberLines.forEach(line => {
         if (!line.trim()) {
@@ -3289,11 +3293,13 @@ server.tool(
           return;
         }
 
+        position++;
         const t = tokenize(line);
         const label = clean(t[0]);
 
         if (labelsToDelete.has(label)) {
           deleted.push(label);
+          deletedPositions.push(position);
         } else {
           keptLines.push(line);
         }
@@ -3321,7 +3327,17 @@ server.tool(
 
       fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
+      // Distributed loads point to members by position: drop the deleted
+      // members' loads and renumber loads on members after them.
+      const loadRemap = remapMemberLoadsAfterDelete(fileContent, deletedPositions);
+      fileContent = loadRemap.content;
+
       writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
+
+      const droppedLoadLines = loadRemap.droppedRows.map(d => {
+        const t = tokenize(d.row);
+        return `  ${d.caseName}: ${cleanSemi(t[2])} -> ${cleanSemi(t[3])} (was on member position ${d.position})`;
+      });
 
       return {
         content: [{
@@ -3331,6 +3347,9 @@ server.tool(
             `Deleted member(s): ${deleted.join(", ")}`,
             missing.length > 0 ? `Not found / skipped: ${missing.join(", ")}` : "Not found / skipped: none",
             `Updated member count: ${nonEmptyKeptCount}`,
+            `Distributed loads removed with deleted members: ${loadRemap.droppedRows.length}`,
+            ...droppedLoadLines,
+            `Distributed loads renumbered to new member positions: ${loadRemap.renumbered}`,
             `Saved new model: ${outputPath}`,
             `Original unchanged: ${filePath}`,
             "",

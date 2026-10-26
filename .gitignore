@@ -38,3 +38,6 @@ Thumbs.db
 # Output folders
 output/
 exports/
+
+# Synthetic regression fixtures (not client models)
+!tests/fixtures/*.r3d

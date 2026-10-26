@@ -26,7 +26,13 @@ import {
   rebuildNodesSection,
   rebuildMembersSection,
   generateUnusedLabel,
-  findOrCreateNodeForGeometry
+  findOrCreateNodeForGeometry,
+  readRisaFile,
+  writeRisaFile,
+  getSectionCount,
+  spliceMatch,
+  spliceMatchGroup,
+  spliceMatches
 } from "./risa-core.js";
 
 export function createRisaServer() {
@@ -41,10 +47,9 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       const nodeMatch = content.match(/\[NODES\] <(\d+)>/);
-      const memberMatch = content.match(/\[MEMBERS_MAIN_DATA\] <(\d+)>/);
       const plateMatch = content.match(/\[PLATES\] <(\d+)>/);
 
       const titleMatch = content.match(/\[\.\.MODEL_TITLE\] <1>\s*\n([^\n]+)/);
@@ -56,7 +61,7 @@ server.tool(
         company: companyMatch ? clean(companyMatch[1]) : "Unknown",
         designer: designerMatch ? clean(designerMatch[1]) : "Unknown",
         nodeCount: nodeMatch ? parseInt(nodeMatch[1]) : 0,
-        memberCount: memberMatch ? parseInt(memberMatch[1]) : 0,
+        memberCount: getSectionCount(content, "MEMBERS_MAIN_DATA") ?? 0,
         plateCount: plateMatch ? parseInt(plateMatch[1]) : 0,
         fileSizeKB: Math.round(fs.statSync(filePath).size / 1024)
       };
@@ -87,7 +92,7 @@ server.tool(
   },
   async ({ filePath, mode = "summary", filterType }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
 
       if (nodesOrdered.length === 0) {
@@ -158,7 +163,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodes = parseNodesOrdered(content);
 
       if (nodes.length === 0) {
@@ -185,7 +190,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       const lcMatch = content.match(/\[LOAD_COMBINATIONS\] <\d+>([\s\S]*?)\[END_LOAD_COMBINATIONS\]/);
       if (!lcMatch) {
@@ -218,7 +223,7 @@ server.tool(
   },
   async ({ filePath, sectionName }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const regex = new RegExp(`\\[\\.?${sectionName}\\][\\s\\S]*?\\[\\.?END_${sectionName}\\]`);
       const match = content.match(regex);
 
@@ -251,7 +256,7 @@ server.tool(
   },
   async ({ filePath, filterType, maxRows = 200 }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
 
       if (nodesOrdered.length === 0) {
@@ -309,7 +314,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const qc = runQCChecks(content);
 
       const issues = [];
@@ -362,7 +367,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       // Focus on HR steel materials (most relevant for misc steel work)
       // Format: Label, E, G, Nu, Alpha, Weight, Fy, -1, Ry, Fu, Rt
@@ -414,7 +419,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
 
       const bcMatch = content.match(/\[BOUNDARY_CONDITIONS\] <\d+>([\s\S]*?)\[END_BOUNDARY_CONDITIONS\]/);
@@ -476,7 +481,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       const match = content.match(/\[\.HR_STEEL_SECTION_SETS\] <\d+>([\s\S]*?)\[\.END_HR_STEEL_SECTION_SETS\]/);
       if (!match) {
@@ -506,7 +511,7 @@ server.tool(
   },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
       const parsedLoads = parseLoadsByBasicLoadCase(content);
@@ -658,7 +663,7 @@ server.tool(
       for (const fileName of r3dFiles) {
         const filePath = folderPath.replace(/[\/]+$/, "") + "\\" + fileName;
         try {
-          const content = fs.readFileSync(filePath, "utf8");
+          const content = readRisaFile(filePath);
 
           // Project info
           const titleMatch = content.match(/\[\.\.MODEL_TITLE\] <1>\s*\n([^\n]+)/);
@@ -668,12 +673,11 @@ server.tool(
 
           // Counts from section headers
           const nodeMatch = content.match(/\[NODES\] <(\d+)>/);
-          const memberMatch = content.match(/\[MEMBERS_MAIN_DATA\] <(\d+)>/);
           const setsMatch = content.match(/\[\.HR_STEEL_SECTION_SETS\] <(\d+)>/);
           const lcMatch = content.match(/\[LOAD_COMBINATIONS\] <(\d+)>/);
 
           const nodeCount = nodeMatch ? parseInt(nodeMatch[1]) : 0;
-          const memberCount = memberMatch ? parseInt(memberMatch[1]) : 0;
+          const memberCount = getSectionCount(content, "MEMBERS_MAIN_DATA") ?? 0;
           const setsCount = setsMatch ? parseInt(setsMatch[1]) : 0;
           const lcCount = lcMatch ? parseInt(lcMatch[1]) : 0;
           const fileSizeKB = Math.round(fs.statSync(filePath).size / 1024);
@@ -723,7 +727,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       const blcMatch = content.match(/\[BASIC_LOAD_CASES\] <\d+>([\s\S]*?)\[END_BASIC_LOAD_CASES\]/);
       if (!blcMatch) {
@@ -773,7 +777,7 @@ server.tool(
   },
   async ({ filePath, sectionSize }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -821,7 +825,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const report = [];
 
       // Field order for both rule types:
@@ -910,7 +914,7 @@ server.tool(
         };
       }
 
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
 
       const result = replaceSectionSizeInContent(content, {
         oldSize,
@@ -931,7 +935,7 @@ server.tool(
         };
       }
 
-      fs.writeFileSync(outputPath, result.content, "utf8");
+      writeRisaFile(outputPath, result.content, { sourcePath: filePath });
 
       return {
         content: [{
@@ -1008,7 +1012,7 @@ server.tool(
         };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
       const report = [];
 
       // --- SECTION SIZE CHANGES ---
@@ -1032,7 +1036,7 @@ server.tool(
                 return line;
               }).join("\n");
 
-              fileContent = fileContent.replace(setsMatch[2], newBlock);
+              fileContent = spliceMatchGroup(fileContent, setsMatch, 2, newBlock);
             }
           }
 
@@ -1051,7 +1055,7 @@ server.tool(
                 return line;
               }).join("\n");
 
-              fileContent = fileContent.replace(membersMatch[2], newBlock);
+              fileContent = spliceMatchGroup(fileContent, membersMatch, 2, newBlock);
             }
           }
 
@@ -1107,7 +1111,7 @@ server.tool(
             report.push(`BC "${bc.nodeLabel}": ${found ? "updated" : "node index found but no matching BC line -- may need to add new BC entry"}`);
           }
 
-          fileContent = fileContent.replace(bcMatch[2], bcBlock);
+          fileContent = spliceMatchGroup(fileContent, bcMatch, 2, bcBlock);
         } else {
           report.push("No BOUNDARY_CONDITIONS section found.");
         }
@@ -1179,7 +1183,7 @@ server.tool(
             report.push(`Member load "${lc.memberLabel}" (${lc.loadCaseName}): ${changed} distributed load row(s) updated`);
           }
 
-          fileContent = fileContent.replace(ddlMatch[2], ddlLines.join("\n"));
+          fileContent = spliceMatchGroup(fileContent, ddlMatch, 2, ddlLines.join("\n"));
         }
       }
 
@@ -1246,11 +1250,11 @@ server.tool(
             report.push(`Node load "${nl.nodeLabel}" (${nl.loadCaseName}): ${changed} node load row(s) updated`);
           }
 
-          fileContent = fileContent.replace(nodeLoadMatch[2], nodeLoadLines.join("\n"));
+          fileContent = spliceMatchGroup(fileContent, nodeLoadMatch, 2, nodeLoadLines.join("\n"));
         }
       }
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       report.unshift(`Cloned model saved to: ${outputPath}`);
       report.push(`Original unchanged: ${filePath}`);
@@ -1317,7 +1321,7 @@ server.tool(
   { filePath: z.string().describe("Full path to the .r3d file") },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -1387,7 +1391,7 @@ server.tool(
   },
   async ({ filePath, thresholdFt }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -1445,7 +1449,7 @@ server.tool(
   async ({ filePath, outputPath }) => {
     try {
       const XLSX = await import("xlsx");
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -1511,7 +1515,7 @@ server.tool(
       for (const fileName of r3dFiles) {
         const fp = folderPath.replace(/[\\/]+$/, "") + "\\" + fileName;
         try {
-          const content = fs.readFileSync(fp, "utf8");
+          const content = readRisaFile(fp);
 
           const titleMatch = content.match(/\[\.\.MODEL_TITLE\] <1>\s*\n([^\n]+)/);
           const designerMatch = content.match(/\[\.\.DESIGNER_NAME\] <1>\s*\n([^\n]+)/);
@@ -1519,12 +1523,11 @@ server.tool(
           const designer = designerMatch ? clean(designerMatch[1]) : "";
 
           const nodeMatch = content.match(/\[NODES\] <(\d+)>/);
-          const memberMatch = content.match(/\[MEMBERS_MAIN_DATA\] <(\d+)>/);
           const setsMatch = content.match(/\[\.HR_STEEL_SECTION_SETS\] <(\d+)>/);
           const lcMatch = content.match(/\[LOAD_COMBINATIONS\] <(\d+)>/);
 
           const nodeCount = nodeMatch ? parseInt(nodeMatch[1]) : 0;
-          const memberCount = memberMatch ? parseInt(memberMatch[1]) : 0;
+          const memberCount = getSectionCount(content, "MEMBERS_MAIN_DATA") ?? 0;
           const setsCount = setsMatch ? parseInt(setsMatch[1]) : 0;
           const lcCount = lcMatch ? parseInt(lcMatch[1]) : 0;
           const fileSizeKB = Math.round(fs.statSync(fp).size / 1024);
@@ -1622,7 +1625,7 @@ server.tool(
         return { content: [{ type: "text", text: "Error: provide only one of jNodeLabel or jCoord for the end point, not both." }] };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
       const report = [];
 
       // ---- Parse existing nodes in file order (this IS the positional index) ----
@@ -1726,7 +1729,7 @@ server.tool(
         const updatedNodesBody = nodesBlockBody.replace(/\s*$/, "") + "\n" + newNodeLinesToAppend.join("\n") + "\n";
         const newNodeCount = nodeLines.length + newNodeLinesToAppend.length;
         const newNodesSection = `${nodesMatch[1]}${newNodeCount}${nodesMatch[3]}${updatedNodesBody}${nodesMatch[5]}`;
-        fileContent = fileContent.replace(nodesMatch[0], newNodesSection);
+        fileContent = spliceMatch(fileContent, nodesMatch, newNodesSection);
       }
 
       // ---- Find a template member of the matching type to clone trailing fields from ----
@@ -1780,10 +1783,10 @@ server.tool(
       const updatedMembersBody = membersBlockBody.replace(/\s*$/, "") + "\n" + newMemberLine + "\n";
       const newMemberCount = memberLines.length + 1;
       const newMembersSection = `${membersMatch[1]}${newMemberCount}${membersMatch[3]}${updatedMembersBody}${membersMatch[5]}`;
-      fileContent = fileContent.replace(membersMatch[0], newMembersSection);
+      fileContent = spliceMatch(fileContent, membersMatch, newMembersSection);
 
       // ---- Write new file ----
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       report.unshift(`Modified model saved to: ${outputPath}`);
       report.push(`New member "${newLabel}": ${type} ${size}, ${iLabel} (idx ${iIndex}) -> ${jLabel} (idx ${jIndex})`);
@@ -1833,7 +1836,7 @@ server.tool(
   async ({ filePath, outputPath }) => {
     try {
       const XLSX = await import("xlsx");
-      const fileContent = fs.readFileSync(filePath, "utf8");
+      const fileContent = readRisaFile(filePath);
 
       // ---- Parse nodes ----
       const nodesOrdered = parseNodesOrdered(fileContent);
@@ -2095,7 +2098,7 @@ server.tool(
   },
   async ({ filePath, toleranceFt }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodes = parseNodesOrdered(content);
 
       if (nodes.length === 0) {
@@ -2198,7 +2201,7 @@ server.tool(
         const outputPath = `${basePath}\\${baseName}${outputSuffix}.r3d`;
 
         try {
-          let fileContent = fs.readFileSync(inputPath, "utf8");
+          let fileContent = readRisaFile(inputPath);
 
           // Count occurrences before replacing
           const regex = new RegExp(oldSize.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
@@ -2210,7 +2213,7 @@ server.tool(
           }
 
           fileContent = fileContent.replace(regex, newSize);
-          fs.writeFileSync(outputPath, fileContent, "utf8");
+          writeRisaFile(outputPath, fileContent, { sourcePath: inputPath });
           totalChanged += matchCount;
           results.push(`${fileName}: ${matchCount} replacement(s) -> saved as ${baseName}${outputSuffix}.r3d`);
         } catch (fileErr) {
@@ -2252,8 +2255,8 @@ server.tool(
   },
   async ({ baseFilePath, revisedFilePath }) => {
     try {
-      const baseContent = fs.readFileSync(baseFilePath, "utf8");
-      const revisedContent = fs.readFileSync(revisedFilePath, "utf8");
+      const baseContent = readRisaFile(baseFilePath);
+      const revisedContent = readRisaFile(revisedFilePath);
 
       const baseNodes = parseNodesOrdered(baseContent);
       const revisedNodes = parseNodesOrdered(revisedContent);
@@ -2421,7 +2424,7 @@ server.tool(
   },
   async ({ filePath, includeTransientLoads = false }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
       const parsed = parseLoadsByBasicLoadCase(content);
@@ -2543,7 +2546,7 @@ server.tool(
   },
   async ({ filePath, maxRows = 10 }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const report = [];
 
       function debugSection(sectionName, endSectionName, rowLimit = maxRows) {
@@ -2605,7 +2608,7 @@ server.tool(
   },
   async ({ filePath }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const blcData = parseBasicLoadCases(content);
 
       const sectionCount = (sectionName, endSectionName) => {
@@ -2680,7 +2683,7 @@ server.tool(
   },
   async ({ filePath, memberLabel }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -2778,7 +2781,7 @@ server.tool(
         };
       }
 
-      let content = fs.readFileSync(filePath, "utf8");
+      let content = readRisaFile(filePath);
       const report = [];
 
       report.push("BATCH SECTION SIZE REPLACEMENT");
@@ -2814,7 +2817,7 @@ server.tool(
         };
       }
 
-      fs.writeFileSync(outputPath, content, "utf8");
+      writeRisaFile(outputPath, content, { sourcePath: filePath });
 
       report.push("");
       report.push(`Total section sets changed: ${totalSetsChanged}`);
@@ -2870,7 +2873,7 @@ server.tool(
         const filePath = path.join(folderPath, fileName);
 
         try {
-          const content = fs.readFileSync(filePath, "utf8");
+          const content = readRisaFile(filePath);
           const qc = runQCChecks(content);
 
           rows.push({
@@ -2959,7 +2962,7 @@ server.tool(
     try {
       const XLSX = await import("xlsx");
 
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
       const parsed = parseLoadsByBasicLoadCase(content);
@@ -3147,7 +3150,7 @@ server.tool(
         };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const nodesMatch = fileContent.match(/(\[NODES\] <\d+>)([\s\S]*?)(\[END_NODES\])/);
       if (!nodesMatch) {
@@ -3203,9 +3206,9 @@ server.tool(
       }
 
       const updatedNodesBlock = updatedNodeLines.join("\n");
-      fileContent = fileContent.replace(nodesMatch[2], updatedNodesBlock);
+      fileContent = spliceMatchGroup(fileContent, nodesMatch, 2, updatedNodesBlock);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -3262,7 +3265,7 @@ server.tool(
         };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const membersMatch = fileContent.match(/(\[\.MEMBERS_MAIN_DATA\] <)(\d+)(>)([\s\S]*?)(\[\.END_MEMBERS_MAIN_DATA\])/);
 
@@ -3315,9 +3318,9 @@ server.tool(
       const updatedMembersSection =
         `${membersMatch[1]}${nonEmptyKeptCount}${membersMatch[3]}${updatedMembersBody}${membersMatch[5]}`;
 
-      fileContent = fileContent.replace(membersMatch[0], updatedMembersSection);
+      fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -3353,7 +3356,7 @@ server.tool(
   },
   async ({ filePath, memberLabel }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -3411,7 +3414,7 @@ server.tool(
   },
   async ({ filePath, nodeLabel }) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(content);
       const members = parseMembersResolved(content, nodesOrdered);
 
@@ -3503,7 +3506,7 @@ server.tool(
         };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const nodesOrdered = parseNodesOrdered(fileContent);
       const nodeLabelToIndex = {};
@@ -3589,9 +3592,9 @@ server.tool(
       const updatedMembersSection =
         `${membersMatch[1]}${newMemberCount}${membersMatch[3]}${updatedMembersBody}${membersMatch[5]}`;
 
-      fileContent = fileContent.replace(membersMatch[0], updatedMembersSection);
+      fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -3644,7 +3647,7 @@ server.tool(
         return { content: [{ type: "text", text: "Error: splitFraction must be between 0 and 1, for example 0.5 for midpoint." }] };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const nodesOrdered = parseNodesOrdered(fileContent);
       const members = parseMembersResolved(fileContent, nodesOrdered);
@@ -3711,7 +3714,7 @@ server.tool(
       const updatedNodesSection =
         `${nodesMatch[1]}${newNodeIndex}${nodesMatch[3]}${updatedNodesBody}${nodesMatch[5]}`;
 
-      fileContent = fileContent.replace(nodesMatch[0], updatedNodesSection);
+      fileContent = spliceMatch(fileContent, nodesMatch, updatedNodesSection);
 
       const membersMatch = fileContent.match(/(\[\.MEMBERS_MAIN_DATA\] <)(\d+)(>)([\s\S]*?)(\[\.END_MEMBERS_MAIN_DATA\])/);
       if (!membersMatch) {
@@ -3771,9 +3774,9 @@ server.tool(
       const updatedMembersSection =
         `${membersMatch[1]}${newMemberCount}${membersMatch[3]}${updatedMembersBody}${membersMatch[5]}`;
 
-      fileContent = fileContent.replace(membersMatch[0], updatedMembersSection);
+      fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -3823,7 +3826,7 @@ server.tool(
         return { content: [{ type: "text", text: "Error: memberLabel1 and memberLabel2 cannot be the same." }] };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
       const nodesOrdered = parseNodesOrdered(fileContent);
       const members = parseMembersResolved(fileContent, nodesOrdered);
 
@@ -3942,9 +3945,9 @@ server.tool(
       const updatedMembersSection =
         `${membersMatch[1]}${newMemberCount}${membersMatch[3]}${updatedMembersBody}${membersMatch[5]}`;
 
-      fileContent = fileContent.replace(membersMatch[0], updatedMembersSection);
+      fileContent = spliceMatch(fileContent, membersMatch, updatedMembersSection);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -3991,7 +3994,7 @@ server.tool(
         return { content: [{ type: "text", text: "Error: outputPath must be different from filePath." }] };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const nodesSection = getNodesSection(fileContent);
       const membersSection = getMembersSection(fileContent);
@@ -4085,10 +4088,12 @@ server.tool(
       const updatedNodesSection = rebuildNodesSection(nodesSection.match, updatedNodeLines);
       const updatedMembersSection = rebuildMembersSection(membersSection.match, updatedMemberLines);
 
-      fileContent = fileContent.replace(nodesSection.match[0], updatedNodesSection);
-      fileContent = fileContent.replace(membersSection.match[0], updatedMembersSection);
+      fileContent = spliceMatches(fileContent, [
+        [nodesSection.match, updatedNodesSection],
+        [membersSection.match, updatedMembersSection]
+      ]);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{
@@ -4137,7 +4142,7 @@ server.tool(
         return { content: [{ type: "text", text: "Error: outputPath must be different from filePath." }] };
       }
 
-      let fileContent = fs.readFileSync(filePath, "utf8");
+      let fileContent = readRisaFile(filePath);
 
       const nodesSection = getNodesSection(fileContent);
       const membersSection = getMembersSection(fileContent);
@@ -4229,10 +4234,12 @@ server.tool(
       const updatedNodesSection = rebuildNodesSection(nodesSection.match, updatedNodeLines);
       const updatedMembersSection = rebuildMembersSection(membersSection.match, updatedMemberLines);
 
-      fileContent = fileContent.replace(nodesSection.match[0], updatedNodesSection);
-      fileContent = fileContent.replace(membersSection.match[0], updatedMembersSection);
+      fileContent = spliceMatches(fileContent, [
+        [nodesSection.match, updatedNodesSection],
+        [membersSection.match, updatedMembersSection]
+      ]);
 
-      fs.writeFileSync(outputPath, fileContent, "utf8");
+      writeRisaFile(outputPath, fileContent, { sourcePath: filePath });
 
       return {
         content: [{

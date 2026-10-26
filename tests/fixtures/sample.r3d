@@ -1,0 +1,52 @@
+[..MODEL_TITLE] <1>
+"Synthetic Test Frame                                            "
+[..COMPANY_NAME] <1>
+"Regression Fixture                                              "
+[..DESIGNER_NAME] <1>
+"Test Suite                                                      "
+[.HR_STEEL_MATERIAL] <1>
+"A992                            "   2.900000e+04   1.115400e+04   0.300000   0.650000   0.490000   50.000000   1.100000   65.000000   1.100000;
+[.END_HR_STEEL_MATERIAL]
+[.HR_STEEL_SECTION_SETS] <2>
+"Beam                            "   "Wide Flange                     "   "W14X22                          "   1 1 0;
+"Column                          "   "Tube                            "   "HSS6X6X4                        "   1 1 0;
+[.END_HR_STEEL_SECTION_SETS]
+[NODES] <6>
+"N1                              "   0.000000000000e+00   0.000000000000e+00   0.000000000000e+00   0 0.000000 0;
+"N2                              "   0.000000000000e+00   1.200000000000e+01   0.000000000000e+00   0 0.000000 0;
+"N3                              "   2.000000000000e+01   0.000000000000e+00   0.000000000000e+00   0 0.000000 0;
+"N4                              "   2.000000000000e+01   1.200000000000e+01   0.000000000000e+00   0 0.000000 0;
+"N5                              "   1.000000000000e+01   1.200000000000e+01   0.000000000000e+00   0 0.000000 0;
+"N6                              "   2.000000000000e+01   1.200000000000e+01   1.500000000000e+01   0 0.000000 0;
+[END_NODES]
+[BOUNDARY_CONDITIONS] <2>
+1 4 4 4 4 4 4 0;
+3 4 4 4 4 4 4 0;
+[END_BOUNDARY_CONDITIONS]
+[.MEMBERS_MAIN_DATA] <5>
+"M1                              "   "Tube                            "   "HSS6X6X4                        "   1 2 0 0 0.000000 0.000000 0.000000;
+"M2                              "   "Tube                            "   "HSS6X6X4                        "   3 4 0 0 0.000000 0.000000 0.000000;
+"M3                              "   "Wide Flange                     "   "W14X22                          "   2 5 0 0 0.000000 0.000000 0.000000;
+"M4                              "   "Wide Flange                     "   "W14X22                          "   5 4 0 0 0.000000 0.000000 0.000000;
+"M5                              "   "Wide Flange                     "   "W14X22                          "   4 6 0 0 0.000000 0.000000 0.000000;
+[.END_MEMBERS_MAIN_DATA]
+[PLATES] <0>
+[END_PLATES]
+[BASIC_LOAD_CASES] <2>
+1 "DL                              " 1 0 0 2 0;
+2 "LL                              " 0 0 0 1 0;
+[END_BASIC_LOAD_CASES]
+[NODE_LOADS] <1>
+5 2 -1.500000 101;
+[END_NODE_LOADS]
+[DIRECT_DISTRIBUTED_LOADS] <3>
+3 2 -0.100000 -0.100000 0.000000 0.000000 101;
+4 2 -0.100000 -0.100000 0.000000 0.000000 101;
+3 2 -0.250000 -0.250000 0.000000 0.000000 102;
+[END_DIRECT_DISTRIBUTED_LOADS]
+[AREA_LOADS] <0>
+[END_AREA_LOADS]
+[LOAD_COMBINATIONS] <2>
+"1.4DL                           " 1 1.400000;
+"1.2DL+1.6LL                     " 1 1.200000 2 1.600000;
+[END_LOAD_COMBINATIONS]

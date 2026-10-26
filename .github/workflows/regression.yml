@@ -25,3 +25,6 @@ jobs:
           node --check index.js
           node --check risa-core.js
           node --check risa-cli.js
+
+      - name: Regression tests
+        run: npm test

@@ -1,4 +1,3 @@
-import fs from "fs";
 import {
   tokenize,
   cleanSemi,
@@ -6,7 +5,8 @@ import {
   buildBasicLoadCaseHelpers,
   parseLoadsByBasicLoadCase,
   parseNodesOrdered,
-  parseMembersResolved
+  parseMembersResolved,
+  readRisaFile
 } from "./risa-core.js";
 
 // ---- CLI mode: run without Claude/MCP ----
@@ -38,7 +38,7 @@ if (command === "generate-load-summary") {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readRisaFile(filePath);
   const nodesOrdered = parseNodesOrdered(content);
   const members = parseMembersResolved(content, nodesOrdered);
   const parsed = parseLoadsByBasicLoadCase(content);
@@ -141,7 +141,7 @@ if (command === "debug-load-case-counts") {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readRisaFile(filePath);
   const blcData = parseBasicLoadCases(content);
 
   const sectionCount = (sectionName, endSectionName) => {
@@ -191,7 +191,7 @@ if (command === "debug-load-structure") {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readRisaFile(filePath);
 
   function debugSection(sectionName, endSectionName, rowLimit = maxRows) {
     const regex = new RegExp(`\\[${sectionName}\\] <\\d+>([\\s\\S]*?)\\[${endSectionName}\\]`);
@@ -240,7 +240,7 @@ if (command === "debug-member-load-rows") {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readRisaFile(filePath);
   const nodesOrdered = parseNodesOrdered(content);
   const members = parseMembersResolved(content, nodesOrdered);
 
@@ -292,7 +292,7 @@ if (command === "debug-load-membership") {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readRisaFile(filePath);
   const parsed = parseLoadsByBasicLoadCase(content);
 
   console.log("RISA LOAD MEMBERSHIP DEBUG");

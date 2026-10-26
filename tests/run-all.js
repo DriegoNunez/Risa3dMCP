@@ -5,7 +5,9 @@ const files = [
   "loads.test.js",
   "qc.test.js",
   "write-tools.test.js",
-  "geometry.test.js"
+  "geometry.test.js",
+  "io.test.js",
+  "mcp-tools.test.js"
 ];
 
 let failed = false;

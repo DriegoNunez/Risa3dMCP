@@ -1,6 +1,7 @@
 import { spawnSync } from "child_process";
 
 const files = [
+  "create-model.test.js",
   "parser.test.js",
   "loads.test.js",
   "qc.test.js",

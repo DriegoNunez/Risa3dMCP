@@ -4,6 +4,7 @@ import { z } from "zod";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createModelSchema, createRisaModel } from "./risa-create.js";
 
 import {
   tokenize,
@@ -43,6 +44,19 @@ const server = new McpServer({
   name: "risa3d-mcp",
   version: "1.0.0"
 });
+
+server.tool(
+  "create_risa_model",
+  "Create an empty .r3d model from scratch, with no source file. This creates project metadata and empty model tables, not a populated structural model. RISA supplies defaults for omitted settings.",
+  createModelSchema.shape,
+  async (args) => {
+    try {
+      return { content: [{ type: "text", text: JSON.stringify(createRisaModel(args), null, 2) }] };
+    } catch (err) {
+      return { isError: true, content: [{ type: "text", text: `Error creating model: ${err.message}` }] };
+    }
+  }
+);
 
 // Tool 1: Read and summarize a .r3d file
 server.tool(

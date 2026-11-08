@@ -466,6 +466,7 @@ Export every HSS member to a schedule.
 
 | Tool | Description |
 |---|---|
+| `create_risa_model` | Creates a new empty `.r3d` file without a source model, with optional project metadata. Refuses to overwrite existing files. |
 | `modify_section_set` | Changes section sizes and saves a new model. |
 | `clone_model_with_changes` | Creates a modified copy of a model with section, support, or load changes. |
 | `add_member` | Adds a new member using existing or newly created nodes. |
@@ -543,6 +544,38 @@ instead of exposing internal raw IDs.
 ---
 
 ## Current Load Editing Support
+
+### Creating a model from scratch
+
+Call `create_risa_model` with an absolute `outputPath` in an existing folder:
+
+```json
+{
+  "outputPath": "C:\\Models\\NewProject.r3d",
+  "title": "New Project",
+  "company": "Example Engineering",
+  "designer": "Project Engineer"
+}
+```
+
+Only `outputPath` is required. The default title is `Untitled`. The tool writes
+CRLF text, file headers, project metadata, and empty geometry and load tables.
+It needs neither a source file nor an installed RISA application at runtime.
+Existing files (including hard-link and symlink targets) are never overwritten.
+Metadata must be a single line of at most 200 characters, without quotes,
+brackets or control characters. The parent directory must already exist.
+
+This creates an **empty model**, not a designed or populated structure. RISA
+supplies defaults for omitted settings and metadata; check units, materials,
+section sets and model settings after opening it. The existing `add_member`
+tool still needs an initial member of the same type, and load-addition tools
+need an existing load of that type in the target case. Create those initial
+items in RISA-3D before using those editing tools. Import of the empty file was
+checked in RISA-3D 23 (native saved file version `23.02044`); other versions have
+not been verified. No analysis or design checks are run by this tool.
+
+Restart your MCP server/client connection after updating the server to discover
+the new tool.
 
 `clone_model_with_changes` currently supports:
 

@@ -38,6 +38,45 @@ try {
   assert.equal(fs.readFileSync(outputPath, "utf8"), raw);
   console.log("PASS: MCP creates an empty model without a source, parses metadata and refuses overwrite");
 
+  const floorPath = path.join(dir, "floor.RFL");
+  const floorArgs = { outputPath: floorPath, program: "risafloor", title: "New Floor", company: "Floor Co", designer: "Floor Designer" };
+  const floorResult = await client.callTool({ name: "create_risa_model", arguments: floorArgs });
+  assert.ok(!floorResult.isError, JSON.stringify(floorResult));
+  const floorSummary = JSON.parse(floorResult.content[0].text);
+  assert.equal(floorSummary.program, "risafloor");
+  assert.equal(floorSummary.floorCount, 0);
+  assert.equal(floorSummary.beamCount, 0);
+  assert.equal(floorSummary.columnCount, 0);
+  assert.ok(!("nodeCount" in floorSummary));
+  const floorRaw = fs.readFileSync(floorPath, "utf8");
+  assert.ok(!/(^|[^\r])\n/.test(floorRaw));
+  const floor = normalizeEol(floorRaw);
+  assert.ok(floor.startsWith("[RISA_FLOOR_INPUT_DATA]"));
+  assert.ok(floor.endsWith("[RISA_FLOOR_FINISH]\n0\n[FINISH]\n"));
+  assert.ok(!floor.includes("[RISA-3D_INPUT_DATA]"));
+  assert.ok(!floor.includes("[NODES]"));
+  assert.equal(findSection(floor, "RF_MODEL_TITLE").lines[0], "New Floor");
+  assert.equal(findSection(floor, "RF_COMPANY_NAME").lines[0], "Floor Co");
+  assert.equal(findSection(floor, "RF_DESIGNER_NAME").lines[0], "Floor Designer");
+  for (const name of ["RF_LAYOUTS", "RF_DIAPHRAGMS", "RF_PCOL_UBLS"]) {
+    assert.equal(findSection(floor, name).declaredCount, 0);
+    assert.equal(findSection(floor, name).lines.length, 0);
+  }
+  assert.equal((await client.callTool({ name: "create_risa_model", arguments: floorArgs })).isError, true);
+  assert.equal(fs.readFileSync(floorPath, "utf8"), floorRaw);
+  for (const args of [
+    { program: "risafloor", outputPath: path.join(dir, "wrong.r3d") },
+    { program: "risa3d", outputPath: path.join(dir, "wrong.rfl") },
+    { outputPath: path.join(dir, "implicit.rfl") },
+    { program: "unknown", outputPath: path.join(dir, "invalid.rfl") },
+    { program: "risafloor", outputPath: path.join(dir, "injected.rfl"), title: "bad\n[RF_LAYOUTS]" }
+  ]) {
+    assert.equal((await client.callTool({ name: "create_risa_model", arguments: args })).isError, true);
+    assert.ok(!fs.existsSync(args.outputPath));
+  }
+  assert.ok(!buildEmptyRisaModel({ outputPath: floorPath, program: "risafloor" }).includes("[..RF_COMPANY_NAME]"));
+  console.log("PASS: RISAFloor creation through MCP uses native RF sections, validates program/extension, and protects existing files");
+
   for (const field of ["title", "company", "designer"]) {
     for (const value of ["bad\n[NODES] <1>", 'bad"quote', "bad\u0000", "x".repeat(201)]) {
       assert.throws(() => createRisaModel({ outputPath: path.join(dir, "bad.r3d"), [field]: value }));

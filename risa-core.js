@@ -16,7 +16,11 @@ export function normalizeEol(text) {
 }
 
 export function readRisaFile(filePath) {
-  return normalizeEol(fs.readFileSync(filePath, "utf8"));
+  const content = normalizeEol(fs.readFileSync(filePath, "utf8"));
+  if (content.startsWith("[RISA_FLOOR_INPUT_DATA]")) {
+    throw new Error("This tool expects RISA-3D data. Use the dedicated risafloor tools for .rfl files.");
+  }
+  return content;
 }
 
 // Validates the edited content against the source model, then writes it via a

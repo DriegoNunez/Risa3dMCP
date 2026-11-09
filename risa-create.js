@@ -14,7 +14,8 @@ const singleLine = z.string().max(200).refine(
 );
 
 export const createModelSchema = z.object({
-  outputPath: z.string().min(1).describe("Absolute path of a NEW .r3d file; parent folder must exist. Existing files are never overwritten."),
+  outputPath: z.string().min(1).describe("Absolute path of a NEW .r3d (risa3d) or .rfl (risafloor) file; parent folder must exist. Existing files are never overwritten."),
+  program: z.enum(["risa3d", "risafloor"]).default("risa3d").describe("Target application. Defaults to risa3d for backward compatibility."),
   title: singleLine.default("Untitled").describe("Project title"),
   company: singleLine.default(""),
   designer: singleLine.default("")
@@ -27,7 +28,9 @@ function section(name, rows = []) {
 }
 
 export function buildEmptyRisaModel(input) {
-  const { title, company, designer } = createModelSchema.parse(input);
+  const options = createModelSchema.parse(input);
+  if (options.program === "risafloor") return buildEmptyFloorModel(options);
+  const { title, company, designer } = options;
   const chunks = [
     "[RISA-3D_INPUT_DATA]",
     section("VERSION_NUMBER", ["22.90025;"]),
@@ -57,10 +60,35 @@ export function buildEmptyRisaModel(input) {
   return chunks.join("\n\n") + "\n";
 }
 
+// RISAFloor is a distinct format, not a renamed .r3d file. These markers and
+// label widths follow the native 19.02044 format; no user model is read/copied.
+function buildEmptyFloorModel({ title, company, designer }) {
+  return [
+    "[RISA_FLOOR_INPUT_DATA]",
+    section("RF_VERSION_NUMBER", ["19.02044;"]) + " <1>",
+    section("RF_PROGRAM_INFO", ["64;"]) + " <1>",
+    "[RF_GLOBAL_PARAMETERS]\n[.RF_PROJECT_DESCRIPTION]",
+    ...[["..RF_MODEL_TITLE", title], ["..RF_COMPANY_NAME", company], ["..RF_DESIGNER_NAME", designer]]
+      .filter(([, value]) => value.trim()).map(([name, value]) => section(name, [value])),
+    "[.END_RF_PROJECT_DESCRIPTION]\n[END_RF_GLOBAL_PARAMETERS]",
+    section("RF_LABEL_LENGTHS", ["32 32 32 60 32 60 80 32 200 32 32 32 32 32 32 32 32 200 32 32 36 32 10 32 32;"]),
+    section("RF_LAYOUTS"),
+    section("RF_DIAPHRAGMS"),
+    section("RF_PCOL_UBLS"),
+    "[RF_FILE_INFORMATION]",
+    section(".RF_FILE_SOURCE", ["0;"]),
+    section(".RF_FILE_TYPE", ["0;"]),
+    "[END_RF_FILE_INFORMATION]",
+    "[RISA_FLOOR_FINISH]\n0\n[FINISH]"
+  ].join("\n\n") + "\n";
+}
+
 export function createRisaModel(input) {
   const options = createModelSchema.parse(input);
-  if (!path.isAbsolute(options.outputPath) || path.extname(options.outputPath).toLowerCase() !== ".r3d") {
-    throw new Error("outputPath must be an absolute path ending in .r3d");
+  const isFloor = options.program === "risafloor";
+  const extension = isFloor ? ".rfl" : ".r3d";
+  if (!path.isAbsolute(options.outputPath) || path.extname(options.outputPath).toLowerCase() !== extension) {
+    throw new Error(`outputPath must be an absolute path ending in ${extension} for ${options.program}`);
   }
   const content = buildEmptyRisaModel(options).replace(/\n/g, "\r\n");
   // Exclusive creation also protects against aliases, symlinks and races.
@@ -77,10 +105,12 @@ export function createRisaModel(input) {
   fs.closeSync(fd);
   return {
     outputPath: options.outputPath,
+    program: options.program,
     title: options.title,
-    nodeCount: 0,
-    memberCount: 0,
+    ...(isFloor ? { floorCount: 0, beamCount: 0, columnCount: 0 } : { nodeCount: 0, memberCount: 0 }),
     status: "created_empty_model",
-    notes: "Empty model, with no geometry or loads. RISA supplies defaults for omitted settings and metadata. Confirm units and model settings in RISA-3D and define materials, section sets and initial members/load cases before using the existing template-based editing tools. No analysis or design has been performed."
+    notes: isFloor
+      ? "Empty RISAFloor model, with no floors, geometry or loads. RISAFloor supplies defaults for omitted settings and metadata. Create the initial floor and member/load templates in RISAFloor, then use the dedicated risafloor reading/editing tools. No analysis or design has been performed."
+      : "Empty model, with no geometry or loads. RISA supplies defaults for omitted settings and metadata. Confirm units and model settings in RISA-3D and define materials, section sets and initial members/load cases before using the existing template-based editing tools. No analysis or design has been performed."
   };
 }

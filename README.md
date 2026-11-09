@@ -1,8 +1,28 @@
-# RISA-3D MCP Server + CLI Toolkit
+# RISA-3D & RISAFloor MCP Toolkit
 
-> Connect Claude/ChatGPT to your RISA-3D structural models using the Model Context Protocol (MCP).
+> Create, inspect, edit and report on structural model files through an MCP-compatible AI assistant.
 
-Built by a structural engineer to bring AI-assisted workflows to RISA-3D. This MCP server lets you talk to your `.r3d` files in plain English, no coding required after setup.
+Work with RISA-3D `.r3d` files and native RISAFloor `.rfl` files using dedicated tools for each format. The server reads and edits model files directly; analysis and design remain in the RISA applications.
+
+## Capabilities at a glance
+
+| Workflow | RISA-3D | RISAFloor |
+|---|---|---|
+| Create a file from scratch | Empty `.r3d` with project metadata | Empty `.rfl` with project metadata |
+| Inspect a model | Model, geometry, properties and load reports | Layouts, floors, points, beams, columns, loads and definitions |
+| Edit geometry | Nodes and members; copy, translate, mirror, split and merge | Points and beams/columns; template-based floors; copy, translate, mirror, split and compatible merge |
+| Edit loads | Template-based node and distributed load additions | Point/line load add, modify, delete; PreDL/PostDL/live magnitudes; area-load definitions and combination factors |
+| Review changes | QC, comparisons and batch reports | QC, comparisons, folder summaries and CSV/XLSX member schedules |
+| Analyze or design | Open and solve in RISA-3D | Open and solve in RISAFloor |
+
+**Validation status:** automated regression tests pass. Empty-model import was
+checked in RISA-3D 23 and RISAFloor 19. Native application verification of the
+new RISAFloor geometry/load editing tools is still pending. RISAFloor writes
+target native 19.x files and do not provide complete RISA-3D feature parity.
+
+**Explore:** [Capability presentation](CAPABILITIES.md) ·
+[RISAFloor tool reference](#risafloor-reading-and-editing) ·
+[Quick start](#quick-start)
 
 ![Node](https://img.shields.io/badge/Node.js-18+-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -19,7 +39,9 @@ Built by a structural engineer to bring AI-assisted workflows to RISA-3D. This M
 > *"What are the boundary conditions at the column bases?"*
 > *"Compare these two models and tell me what changed"*
 
-Once connected, just point Claude at any `.r3d` file and start asking questions.
+Once connected, provide the model's absolute path and use the tools for its
+format. For example: “List the beams on layout 1 of this RISAFloor file, then
+save a separate copy with beam M1 changed to W21X44.”
 
 ---
 
@@ -44,9 +66,9 @@ No RISA-3D API is required. This works by reading RISA-3D's plain-text `.r3d` fi
 ## Quick Start
 
 ```bash
-git clone https://github.com/vibhanshu-mishra/risa3d-mcp-server.git
+git clone https://github.com/DriegoNunez/Risa3dMCP.git
 
-cd risa3d-mcp-server
+cd Risa3dMCP
 
 npm install
 
@@ -466,7 +488,7 @@ Export every HSS member to a schedule.
 
 | Tool | Description |
 |---|---|
-| `create_risa_model` | Creates a new empty `.r3d` file without a source model, with optional project metadata. Refuses to overwrite existing files. |
+| `create_risa_model` | Creates a new empty RISA-3D `.r3d` or RISAFloor `.rfl` file without a source model, with optional project metadata. Refuses to overwrite existing files. |
 | `modify_section_set` | Changes section sizes and saves a new model. |
 | `clone_model_with_changes` | Creates a modified copy of a model with section, support, or load changes. |
 | `add_member` | Adds a new member using existing or newly created nodes. |
@@ -564,6 +586,120 @@ It needs neither a source file nor an installed RISA application at runtime.
 Existing files (including hard-link and symlink targets) are never overwritten.
 Metadata must be a single line of at most 200 characters, without quotes,
 brackets or control characters. The parent directory must already exist.
+
+To create a **RISAFloor** file, select `program: "risafloor"` and use `.rfl`:
+
+```json
+{
+  "program": "risafloor",
+  "outputPath": "C:\\Models\\NewFloorProject.rfl",
+  "title": "New Floor Project",
+  "company": "Example Engineering",
+  "designer": "Project Engineer"
+}
+```
+
+`program` defaults to `"risa3d"`; existing `.r3d` calls remain unchanged. The
+extension must match the selected program (case-insensitive). RISAFloor output
+uses native `RF_` sections and empty layout/diaphragm tables, not renamed RISA-3D
+data. It contains **no floors, beams, columns or loads**. Open it in RISAFloor,
+confirm units and model settings, and add floors and structural elements there.
+The tool returns floor/beam/column counts for RISAFloor and node/member counts
+for RISA-3D. RISAFloor import and project metadata were checked in RISAFloor 19
+using file format version `19.02044`.
+
+Use the dedicated RISAFloor tools below for reading and editing `.rfl` files.
+The original RISA-3D tools reject native RISAFloor input to prevent accidental
+use of the wrong file format.
+
+### RISAFloor reading and editing
+
+RISAFloor editing targets native **19.x** files. All edits write a new `.rfl`
+path, preserve LF/CRLF line endings, and validate the source and result before
+writing. Existing files and hard-link/symlink aliases cannot be overwritten.
+Layout IDs and point references are local to each layout; repeated member or
+point labels on different floors are supported.
+
+| Tool | Capability |
+|---|---|
+| `read_risafloor_model` | Summary, floors, points, beams/columns, point/line loads, materials, decks, design rules or combinations via `view`. |
+| `get_risafloor_section` | Read a raw section; specify `layoutId` for repeated sections. |
+| `qc_check_risafloor_model` | Counts, labels, references, coordinates, zero-length beams, member companion tables and coincident points. |
+| `edit_risafloor_geometry` | Atomic batch of point/member edits, translation, mirroring, beam copying/splitting and floor metadata edits. |
+| `edit_risafloor_load` | Add from a template, modify, delete or scale supported point/line load categories. |
+| `modify_risafloor_area_load_definition` | Edit or clone uniform area-load PreDL/PostDL/live magnitudes; preserves polygon references. |
+| `modify_risafloor_load_combination` | Replace category/factor pairs or clone a combination, retaining its flags. |
+| `find_risafloor_members` | Filter by section, connectivity, label and minimum beam plan length. |
+| `replace_risafloor_section_size` | Replace beam/column section sizes in one or all layouts. |
+| `compare_risafloor_models` | Compare floor metadata, geometry, point/line loads and load combinations. |
+| `clone_risafloor_model` | Validated copy, optionally with geometry operations. |
+| `export_risafloor_schedule` | CSV/XLSX beam and column schedules with resolved plan coordinates. |
+| `batch_summarize_risafloor_folder` | Folder summaries or per-file QC, with isolated error reporting. |
+
+Example geometry transaction:
+
+```json
+{
+  "filePath": "C:\\Models\\Floor.rfl",
+  "outputPath": "C:\\Models\\Floor-edited.rfl",
+  "operations": [
+    { "action": "move_point", "layoutId": 1, "label": "N2", "x": 25, "z": 10 },
+    { "action": "modify_member", "layoutId": 1, "kind": "beam", "label": "M1", "size": "W21X44" }
+  ]
+}
+```
+
+Geometry actions are `add_point`, `move_point`, `delete_point`, `add_floor`, `add_member`, `modify_member`,
+`delete_member`, `translate_geometry`, `mirror_geometry`, `copy_beams`,
+`split_beam`, `merge_beams` and `modify_floor`. Member kinds are `beam` and `column`.
+`add_member` requires a `templateLabel` (optionally from `templateLayoutId`), a new `label`, an
+`iPointLabel` and (for beams) `jPointLabel`. All companion rows are copied;
+new member UUIDs are generated. `copy_beams` takes `beamLabels`, a new-label
+`prefix`, `dx`/`dz`, and optional `mirrorAxis` (`x` or `z`) and `mirrorAt`.
+It copies beam geometry/design data, **not loads, columns or slab polygons**.
+Moving/mirroring points moves every entity attached to those points, including
+point/line loads. Splitting keeps the original beam's design properties on
+both pieces; review releases and design/unbraced lengths in RISAFloor.
+`add_floor` creates an empty layout using an independent floor's settings via
+`templateLayoutId`, `name` and `elevation`. `delete_point` only removes unused
+points in layouts whose references can be updated safely. `merge_beams` requires
+collinear, connected beams with matching companion properties.
+
+Example `edit_risafloor_load` call:
+
+```json
+{
+  "filePath": "C:\\Models\\Floor.rfl",
+  "outputPath": "C:\\Models\\Floor-loads.rfl",
+  "layoutId": 1,
+  "kind": "line",
+  "action": "modify",
+  "row": 1,
+  "preDL": [0.1, 0.1],
+  "postDL": [0.2, 0.3],
+  "live": [0.4, 0.4]
+}
+```
+
+Rows are one-based within the selected layout. Point loads use scalar
+magnitudes; line loads use `[start, end]`. All magnitudes and coordinates use
+the source model's units and sign convention. `factor` scales **PreDL, PostDL
+and live only**, preserving other categories. Live-load reduction and load
+direction flags are retained. To add a load, use `action: "add"` and an existing
+`templateRow`; unspecified template magnitudes/flags are copied. Optional
+`templateLayoutId` selects a donor layout; specify target point labels when
+copying a load between layouts. To delete,
+use `action: "delete"` and `row`. Load combinations use native RISAFloor
+category numbers, not RISA-3D basic-load-case numbers.
+
+Current boundaries: create initial floor/member/load templates in RISAFloor.
+Floor deletion, area-load polygon editing, wall/slab/diaphragm editing, arbitrary material/design-rule
+editing, SAF export and weight takeoffs are not implemented. Shared layouts,
+unknown member side tables, integrated RISA-3D files and multi-layout column
+deletion are refused where reference updates cannot be guaranteed. Native
+analysis, design checks, load attribution and results are not regenerated;
+open the output in RISAFloor and re-solve. These tools do not claim complete
+RISA-3D feature parity.
 
 This creates an **empty model**, not a designed or populated structure. RISA
 supplies defaults for omitted settings and metadata; check units, materials,

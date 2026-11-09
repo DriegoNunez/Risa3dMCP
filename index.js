@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createModelSchema, createRisaModel } from "./risa-create.js";
+import { registerFloorTools } from "./risafloor-tools.js";
 
 import {
   tokenize,
@@ -44,10 +45,11 @@ const server = new McpServer({
   name: "risa3d-mcp",
   version: "1.0.0"
 });
+registerFloorTools(server);
 
 server.tool(
   "create_risa_model",
-  "Create an empty .r3d model from scratch, with no source file. This creates project metadata and empty model tables, not a populated structural model. RISA supplies defaults for omitted settings.",
+  "Create an empty RISA-3D (.r3d) or RISAFloor (.rfl) model from scratch, with no source file. Select program: risa3d (default) or risafloor. Creates project metadata and empty model tables, not a populated structure. Use the dedicated risafloor tools to read and edit RISAFloor models.",
   createModelSchema.shape,
   async (args) => {
     try {
